@@ -3,296 +3,120 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Devo Manager</title>
-    <!-- PWA Meta Tags -->
+    <title>DEVO FC Manager</title>
+    
+    <!-- PWA & Mobile Optimization -->
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#0f172a">
     
-    <!-- Tailwind & FontAwesome -->
+    <!-- UI Frameworks -->
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
-    <!-- React & Firebase SDKs -->
-    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- React & Babel -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+
+    <style>
+        body { background-color: #0f172a; margin: 0; font-family: sans-serif; }
+        .active-tab { color: #3b82f6; transform: scale(1.1); transition: all 0.3s ease; }
+    </style>
 </head>
-<body class="bg-slate-950">
+<body>
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useRef } = React;
-        
-        // --- KONFIGURASI FIREBASE ---
-        // Catatan: Variabel __firebase_config disediakan oleh environment Canvas
-        const firebaseConfig = JSON.parse(__firebase_config);
-        
-        // Import Firebase dari CDN
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
-        import { getFirestore, collection, doc, onSnapshot, setDoc, addDoc, query, orderBy } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
-
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'devo-manager-v1';
-        const DEVO_LOGO = "https://lh3.googleusercontent.com/d/1X6GgS2w9r3mG_fS_Q4u1_hS4Z6G8J9_B";
+        const { useState, useEffect } = React;
+        const LOGO_URL = "https://lh3.googleusercontent.com/d/1X6GgS2w9r3mG_fS_Q4u1_hS4Z6G8J9_B";
 
         function App() {
-            const [user, setUser] = useState(null);
-            const [page, setPage] = useState('login');
-            const [members, setMembers] = useState([]);
-            const [finance, setFinance] = useState([]);
-            const [iuran, setIuran] = useState({});
-            const [isModalOpen, setIsModalOpen] = useState(false);
-            const [selectedImg, setSelectedImg] = useState(null);
-            const [loading, setLoading] = useState(false);
-            const [viewImg, setViewImg] = useState(null);
-            const [editSlot, setEditSlot] = useState(null);
-
-            const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+            const [activeTab, setActiveTab] = useState('home');
+            const [view, setView] = useState('splash');
 
             useEffect(() => {
-                signInAnonymously(auth).catch(console.error);
-                onAuthStateChanged(auth, (u) => {
-                    setUser(u);
-                    if(u) setPage('dashboard');
-                });
+                setTimeout(() => setView('app'), 2000);
             }, []);
 
-            useEffect(() => {
-                if (!user) return;
-
-                // Sync Anggota
-                const unsubMem = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'members'), (snap) => {
-                    const data = snap.docs.map(d => d.data());
-                    const list = Array.from({length: 50}, (_, i) => {
-                        const found = data.find(m => m.slotIndex === i);
-                        return found || { slotIndex: i, name: `Anggota ${i+1}`, status: 'empty' };
-                    });
-                    setMembers(list);
-                });
-
-                // Sync Keuangan
-                const unsubFin = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'finance'), (snap) => {
-                    const data = snap.docs.map(d => ({id: d.id, ...d.data()}));
-                    setFinance(data.sort((a,b) => new Date(b.tanggal) - new Date(a.tanggal)));
-                });
-
-                // Sync Iuran
-                const unsubIur = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'iuran'), (snap) => {
-                    const obj = {};
-                    snap.docs.forEach(d => obj[d.id] = d.data());
-                    setIuran(obj);
-                });
-
-                return () => { unsubMem(); unsubFin(); unsubIur(); };
-            }, [user]);
-
-            const handleUpdateMember = async (i, val) => {
-                if(!val.trim()) return setEditSlot(null);
-                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'members', `slot_${i}`), {
-                    slotIndex: i, name: val, status: 'active'
-                });
-                setEditSlot(null);
-            };
-
-            const handleToggleIuran = async (i, m) => {
-                const id = `iuran_slot_${i}`;
-                const status = iuran[id]?.[m] || false;
-                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'iuran', id), {
-                    [m]: !status
-                }, { merge: true });
-            };
-
-            const handleSaveFin = async (e) => {
-                e.preventDefault();
-                setLoading(true);
-                const fd = new FormData(e.target);
-                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'finance'), {
-                    keterangan: fd.get('ket'),
-                    jumlah: parseInt(fd.get('nom')),
-                    tipe: fd.get('tipe'),
-                    tanggal: new Date().toISOString(),
-                    bukti: selectedImg
-                });
-                setLoading(false);
-                setIsModalOpen(false);
-                setSelectedImg(null);
-            };
-
-            if (page === 'login') return (
-                <div className="min-h-screen flex flex-col items-center justify-center p-8 text-white text-center">
-                    <img src={DEVO_LOGO} className="w-40 h-40 object-contain mb-8 animate-pulse" />
-                    <h1 className="text-4xl font-black italic mb-2 tracking-tighter">DEVO <span className="text-blue-500">FC</span></h1>
-                    <p className="text-slate-500 text-xs font-bold tracking-[0.4em] mb-12 uppercase">Internal Manager</p>
-                    <button onClick={() => setPage('dashboard')} className="w-full max-w-xs bg-blue-600 py-4 rounded-2xl font-black tracking-widest text-sm shadow-xl shadow-blue-600/30">MULAI SEKARANG</button>
-                </div>
-            );
+            if (view === 'splash') {
+                return (
+                    <div className="min-h-screen flex flex-col items-center justify-center bg-slate-950">
+                        <img src={LOGO_URL} className="w-32 h-32 animate-pulse object-contain" />
+                        <h1 className="mt-4 text-2xl font-black italic text-white tracking-tighter">DEVO<span className="text-blue-500">FC</span></h1>
+                    </div>
+                );
+            }
 
             return (
-                <div className="max-w-md mx-auto min-h-screen text-white pb-32">
-                    {/* Top Bar */}
-                    <div className="p-6 sticky top-0 bg-slate-950/80 backdrop-blur-xl z-50 flex justify-between items-center border-b border-white/5">
+                <div className="min-h-screen bg-slate-950 text-white pb-24 flex flex-col">
+                    <header className="p-6 flex justify-between items-center bg-slate-950/80 backdrop-blur-md sticky top-0 z-50">
                         <div className="flex items-center gap-3">
-                            <img src={DEVO_LOGO} className="w-8 h-8" />
-                            <h2 className="text-xs font-black uppercase italic tracking-widest">{page}</h2>
+                            <img src={LOGO_URL} className="w-8 h-8 object-contain" />
+                            <h1 className="font-black italic text-lg tracking-tighter uppercase">{activeTab}</h1>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="bg-slate-900 px-4 py-1.5 rounded-full border border-white/5 flex items-center gap-2">
                             <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                            <span className="text-[10px] font-bold text-slate-500 uppercase">Terhubung</span>
+                            <span className="text-[10px] font-bold text-slate-400 uppercase">Aktif</span>
                         </div>
-                    </div>
+                    </header>
 
-                    <div className="p-6">
-                        {page === 'dashboard' && (
+                    <main className="px-6 flex-1 overflow-y-auto">
+                        {activeTab === 'home' && (
                             <div className="space-y-6">
-                                <div className="bg-gradient-to-br from-blue-600 to-indigo-900 p-8 rounded-[2.5rem] shadow-2xl relative overflow-hidden border border-white/10">
-                                    <p className="text-xs font-bold text-blue-200 uppercase tracking-widest opacity-60">Total Kas Organisasi</p>
-                                    <h3 className="text-4xl font-black mt-2">Rp {finance.reduce((a,c) => c.tipe==='masuk'?a+c.jumlah:a-c.jumlah, 0).toLocaleString('id-ID')}</h3>
-                                    <div className="mt-8 flex gap-3 overflow-x-auto pb-2">
-                                        <div className="bg-white/10 px-4 py-2 rounded-xl text-[10px] font-black whitespace-nowrap">{members.filter(m=>m.status==='active').length} Anggota</div>
-                                        <div className="bg-white/10 px-4 py-2 rounded-xl text-[10px] font-black whitespace-nowrap">Musim 2024/2025</div>
+                                <div className="bg-gradient-to-br from-blue-600 to-indigo-900 p-8 rounded-[2.5rem] shadow-2xl relative overflow-hidden mt-4">
+                                    <p className="text-xs font-bold text-blue-200 uppercase tracking-widest opacity-70">Saldo Kas Devo</p>
+                                    <h2 className="text-4xl font-black mt-2">Rp 2.500.000</h2>
+                                    <div className="mt-8 flex gap-2">
+                                        <div className="bg-white/10 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest">50 Anggota</div>
+                                        <div className="bg-white/10 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest">Musim 2024</div>
                                     </div>
                                 </div>
                                 <div className="grid grid-cols-2 gap-4">
-                                    <button onClick={()=>setPage('anggota')} className="bg-slate-900 p-6 rounded-[2rem] border border-white/5 text-left active:scale-95 transition-all">
-                                        <i className="fas fa-users-cog text-blue-500 text-2xl mb-4"></i>
-                                        <p className="text-xs font-black uppercase">Anggota</p>
-                                    </button>
-                                    <button onClick={()=>setPage('iuran')} className="bg-slate-900 p-6 rounded-[2rem] border border-white/5 text-left active:scale-95 transition-all">
-                                        <i className="fas fa-hand-holding-dollar text-green-500 text-2xl mb-4"></i>
-                                        <p className="text-xs font-black uppercase">Cek Iuran</p>
-                                    </button>
+                                    <div className="bg-slate-900 p-6 rounded-3xl border border-white/5">
+                                        <i className="fas fa-arrow-up text-green-500 mb-3 text-xl"></i>
+                                        <p className="text-[10px] text-slate-500 font-bold uppercase">Masuk</p>
+                                        <p className="font-black">Rp 1.250.000</p>
+                                    </div>
+                                    <div className="bg-slate-900 p-6 rounded-3xl border border-white/5">
+                                        <i className="fas fa-arrow-down text-red-500 mb-3 text-xl"></i>
+                                        <p className="text-[10px] text-slate-500 font-bold uppercase">Keluar</p>
+                                        <p className="font-black">Rp 450.000</p>
+                                    </div>
                                 </div>
                             </div>
                         )}
-
-                        {page === 'anggota' && (
-                            <div className="space-y-3">
-                                <p className="text-[10px] font-black text-slate-500 mb-4 tracking-widest">KELOLA 50 SLOT ANGGOTA</p>
-                                {members.map((m, i) => (
-                                    <div key={i} className="bg-slate-900 p-4 rounded-2xl border border-white/5 flex items-center gap-4">
-                                        <span className="text-[10px] font-mono text-slate-700 w-5">{i+1}</span>
-                                        <div className="flex-1">
-                                            {editSlot === i ? (
-                                                <input autoFocus onBlur={(e)=>handleUpdateMember(i, e.target.value)} onKeyDown={(e)=>e.key==='Enter'&&handleUpdateMember(i,e.target.value)} defaultValue={m.status==='empty'?'':m.name} className="w-full bg-transparent border-b border-blue-500 outline-none text-sm font-bold" />
-                                            ) : (
-                                                <p onClick={()=>setEditSlot(i)} className={`text-sm ${m.status==='empty'?'text-slate-700 italic':'font-black'}`}>{m.name}</p>
-                                            )}
-                                        </div>
-                                        {m.status==='active' && <i className="fas fa-check-circle text-blue-500 text-[10px]"></i>}
-                                    </div>
-                                ))}
+                        {activeTab !== 'home' && (
+                            <div className="flex flex-col items-center justify-center py-20 text-slate-700">
+                                <i className="fas fa-hammer text-4xl mb-4"></i>
+                                <p className="text-xs font-black uppercase tracking-widest">Halaman {activeTab} Dalam Pengembangan</p>
                             </div>
                         )}
+                    </main>
 
-                        {page === 'iuran' && (
-                            <div className="overflow-x-auto rounded-3xl border border-white/5 bg-slate-900/50">
-                                <table className="w-full text-left border-collapse min-w-[800px]">
-                                    <thead>
-                                        <tr>
-                                            <th className="p-5 text-[10px] font-black text-slate-500 sticky left-0 bg-slate-900 z-10">NAMA</th>
-                                            {months.map(m => <th key={m} className="p-5 text-[10px] font-black text-slate-500 text-center">{m}</th>)}
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {members.filter(m=>m.status==='active').map((m, i) => (
-                                            <tr key={i} className="border-t border-white/5">
-                                                <td className="p-5 text-xs font-black sticky left-0 bg-slate-950/80 backdrop-blur-md z-10 truncate">{m.name}</td>
-                                                {months.map(mon => (
-                                                    <td key={mon} className="p-2 text-center">
-                                                        <button onClick={()=>handleToggleIuran(m.slotIndex, mon)} className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all ${iuran[`iuran_slot_${m.slotIndex}`]?.[mon] ? 'bg-green-600 text-white' : 'bg-slate-800 text-slate-600'}`}>
-                                                            <i className={`fas ${iuran[`iuran_slot_${m.slotIndex}`]?.[mon] ? 'fa-check' : 'fa-times'} text-[10px]`}></i>
-                                                        </button>
-                                                    </td>
-                                                ))}
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        )}
-
-                        {page === 'keuangan' && (
-                            <div className="space-y-4">
-                                <div className="flex justify-between items-center mb-6">
-                                    <h3 className="text-sm font-black text-slate-500 tracking-widest">LOG TRANSAKSI</h3>
-                                    <button onClick={()=>setIsModalOpen(true)} className="bg-blue-600 px-5 py-2 rounded-xl text-[10px] font-black">INPUT NOTA</button>
-                                </div>
-                                {finance.map(f => (
-                                    <div key={f.id} className="bg-slate-900/50 p-5 rounded-[2rem] border border-white/5 flex justify-between items-center">
-                                        <div className="flex items-center gap-4">
-                                            <div className={`w-10 h-10 rounded-2xl flex items-center justify-center ${f.tipe==='masuk'?'bg-green-500/10 text-green-500':'bg-red-500/10 text-red-500'}`}>
-                                                <i className={`fas fa-arrow-${f.tipe==='masuk'?'up':'down'} text-xs`}></i>
-                                            </div>
-                                            <div>
-                                                <p className="text-sm font-black tracking-tight">{f.keterangan}</p>
-                                                <div className="flex gap-3 items-center mt-1">
-                                                    <span className="text-[9px] font-bold text-slate-600 uppercase">{new Date(f.tanggal).toLocaleDateString('id-ID')}</span>
-                                                    {f.bukti && <button onClick={()=>setViewImg(f.bukti)} className="text-[9px] font-black text-blue-500 uppercase">Lampiran</button>}
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <p className={`font-black ${f.tipe==='masuk'?'text-green-500':'text-red-500'}`}>{f.tipe==='masuk'?'+':'-'} {f.jumlah.toLocaleString('id-ID')}</p>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Nav Bar */}
-                    <nav className="fixed bottom-8 left-6 right-6 bg-slate-900/90 backdrop-blur-2xl border border-white/10 p-3 flex justify-around items-center z-50 rounded-[2.5rem] shadow-2xl">
-                        <button onClick={()=>setPage('dashboard')} className={`p-4 rounded-2xl ${page==='dashboard'?'bg-blue-600 text-white shadow-lg shadow-blue-600/30':'text-slate-500'}`}><i className="fas fa-grid-2 text-xl"></i></button>
-                        <button onClick={()=>setPage('anggota')} className={`p-4 rounded-2xl ${page==='anggota'?'bg-blue-600 text-white shadow-lg shadow-blue-600/30':'text-slate-500'}`}><i className="fas fa-users text-xl"></i></button>
-                        <button onClick={()=>setIsModalOpen(true)} className="w-14 h-14 bg-white text-slate-950 rounded-2xl flex items-center justify-center shadow-2xl active:scale-90 transition-all"><i className="fas fa-camera text-xl"></i></button>
-                        <button onClick={()=>setPage('iuran')} className={`p-4 rounded-2xl ${page==='iuran'?'bg-blue-600 text-white shadow-lg shadow-blue-600/30':'text-slate-500'}`}><i className="fas fa-file-invoice-dollar text-xl"></i></button>
-                        <button onClick={()=>setPage('keuangan')} className={`p-4 rounded-2xl ${page==='keuangan'?'bg-blue-600 text-white shadow-lg shadow-blue-600/30':'text-slate-500'}`}><i className="fas fa-wallet text-xl"></i></button>
+                    <nav className="fixed bottom-0 left-0 right-0 bg-slate-900/95 backdrop-blur-2xl border-t border-white/5 p-4 px-8 flex justify-between items-center z-[100] rounded-t-[2.5rem]">
+                        <button onClick={() => setActiveTab('home')} className={`flex flex-col items-center gap-1 ${activeTab === 'home' ? 'active-tab' : 'text-slate-600'}`}>
+                            <i className="fas fa-house-chimney text-xl"></i>
+                            <span className="text-[8px] font-black uppercase">Home</span>
+                        </button>
+                        <button onClick={() => setActiveTab('iuran')} className={`flex flex-col items-center gap-1 ${activeTab === 'iuran' ? 'active-tab' : 'text-slate-600'}`}>
+                            <i className="fas fa-file-invoice-dollar text-xl"></i>
+                            <span className="text-[8px] font-black uppercase">Iuran</span>
+                        </button>
+                        <div className="relative">
+                            <button className="bg-blue-600 w-14 h-14 rounded-2xl flex items-center justify-center shadow-xl shadow-blue-600/30 -mt-12 border-4 border-slate-950 active:scale-90 transition-all">
+                                <i className="fas fa-camera text-xl text-white"></i>
+                            </button>
+                        </div>
+                        <button onClick={() => setActiveTab('tim')} className={`flex flex-col items-center gap-1 ${activeTab === 'tim' ? 'active-tab' : 'text-slate-600'}`}>
+                            <i className="fas fa-users text-xl"></i>
+                            <span className="text-[8px] font-black uppercase">Tim</span>
+                        </button>
+                        <button onClick={() => setActiveTab('kas')} className={`flex flex-col items-center gap-1 ${activeTab === 'kas' ? 'active-tab' : 'text-slate-600'}`}>
+                            <i className="fas fa-wallet text-xl"></i>
+                            <span className="text-[8px] font-black uppercase">Kas</span>
+                        </button>
                     </nav>
-
-                    {/* Modal Input */}
-                    {isModalOpen && (
-                        <div className="fixed inset-0 z-[100] bg-black/90 flex items-end justify-center p-4 animate-in fade-in duration-300">
-                            <div className="bg-slate-900 w-full max-w-md rounded-[3rem] p-8 border border-white/10 animate-in slide-in-from-bottom duration-500">
-                                <div className="flex justify-between items-center mb-8">
-                                    <h3 className="font-black italic">BARU</h3>
-                                    <button onClick={()=>setIsModalOpen(false)}><i className="fas fa-times-circle text-2xl text-slate-700"></i></button>
-                                </div>
-                                <form onSubmit={handleSaveFin} className="space-y-4">
-                                    <div className="flex gap-2">
-                                        <label className="flex-1">
-                                            <input type="radio" name="tipe" value="masuk" defaultChecked className="hidden peer" />
-                                            <div className="text-center py-3 rounded-xl bg-slate-800 border-2 border-transparent peer-checked:border-green-500 peer-checked:bg-green-500/10 text-[10px] font-black">UANG MASUK</div>
-                                        </label>
-                                        <label className="flex-1">
-                                            <input type="radio" name="tipe" value="keluar" className="hidden peer" />
-                                            <div className="text-center py-3 rounded-xl bg-slate-800 border-2 border-transparent peer-checked:border-red-500 peer-checked:bg-red-500/10 text-[10px] font-black">UANG KELUAR</div>
-                                        </label>
-                                    </div>
-                                    <input name="ket" required placeholder="Keterangan..." className="w-full bg-slate-800 rounded-xl p-4 text-sm outline-none" />
-                                    <input name="nom" type="number" required placeholder="Nominal Rp..." className="w-full bg-slate-800 rounded-xl p-4 text-sm outline-none font-mono" />
-                                    <div onClick={()=>document.getElementById('finImg').click()} className="w-full aspect-video bg-slate-800 rounded-2xl border-2 border-dashed border-white/5 flex flex-col items-center justify-center overflow-hidden cursor-pointer">
-                                        {selectedImg ? <img src={selectedImg} className="w-full h-full object-cover" /> : <><i className="fas fa-camera text-2xl mb-2 opacity-20"></i><p className="text-[10px] font-bold opacity-30 uppercase">Foto Nota</p></>}
-                                    </div>
-                                    <input id="finImg" type="file" accept="image/*" capture="environment" className="hidden" onChange={(e)=>{
-                                        const r = new FileReader();
-                                        r.onload = () => setSelectedImg(r.result);
-                                        r.readAsDataURL(e.target.files[0]);
-                                    }} />
-                                    <button disabled={loading} className="w-full bg-white text-slate-950 py-4 rounded-2xl font-black text-sm tracking-widest">{loading ? "MENYIMPAN..." : "SIMPAN DATA"}</button>
-                                </form>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Viewer Gambar */}
-                    {viewImg && (
-                        <div className="fixed inset-0 z-[200] bg-black/95 flex items-center justify-center p-6" onClick={()=>setViewImg(null)}>
-                            <img src={viewImg} className="max-w-full max-h-full rounded-2xl" />
-                            <p className="absolute bottom-10 text-[10px] font-black text-slate-500 uppercase tracking-widest italic">Ketuk dimana saja untuk tutup</p>
-                        </div>
-                    )}
                 </div>
             );
         }
