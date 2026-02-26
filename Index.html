@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>DEVO FC Manager</title>
+    <title>DEVO Mobile Manager</title>
     <link rel="manifest" href="manifest.json">
     
     <!-- UI Frameworks -->
@@ -31,15 +31,16 @@
 
     <script type="text/babel">
         // ============================================================
-        // 1. TEMPEL CONFIG FIREBASE ANDA DI SINI
+        // CONFIG FIREBASE (Sudah diisi sesuai gambar Anda)
         // ============================================================
         const firebaseConfig = {
-            apiKey: "PASTE_API_KEY_ANDA_DISINI",
+            apiKey: "AIzaSyC7-l7LkpXzdebsGINhg49zPy3XAEtqtUw",
             authDomain: "devo-manager.firebaseapp.com",
             projectId: "devo-manager",
-            storageBucket: "devo-manager.appspot.com",
-            messagingSenderId: "...",
-            appId: "..."
+            storageBucket: "devo-manager.firebasestorage.app",
+            messagingSenderId: "622771552963",
+            appId: "1:622771552963:web:73af8de96d646fb1da1876",
+            measurementId: "G-2KE1DXB30E"
         };
         // ============================================================
 
@@ -63,8 +64,15 @@
                 // Monitor Saldo
                 const unsubFinance = db.collection("settings").doc("finance").onSnapshot(doc => {
                     if (doc.exists) setSaldo(doc.data().saldo || 0);
+                    else {
+                        // Inisialisasi saldo jika belum ada
+                        db.collection("settings").doc("finance").set({ saldo: 0 });
+                    }
                     setLoading(false);
-                }, err => console.error("Error saldo:", err));
+                }, err => {
+                    console.error("Error saldo:", err);
+                    setLoading(false);
+                });
 
                 // Monitor Anggota
                 const unsubMembers = db.collection("members").orderBy("id", "asc").onSnapshot(snap => {
@@ -84,7 +92,7 @@
             const initMembers = async () => {
                 const batch = db.batch();
                 for (let i = 1; i <= 50; i++) {
-                    const ref = db.collection("members").doc();
+                    const ref = db.collection("members").doc(`member_${i}`);
                     batch.set(ref, { id: i, name: `PEMAIN ${i}`, paid: {} });
                 }
                 await batch.commit();
@@ -101,7 +109,7 @@
                         total: amount,
                         date: firebase.firestore.Timestamp.now()
                     });
-                    await db.collection("settings").doc("finance").set({ saldo: newSaldo });
+                    await db.collection("settings").doc("finance").update({ saldo: newSaldo });
                     setNewTrx({ ket: '', total: '', tipe: 'masuk' });
                 } catch (e) {
                     alert("Error: " + e.message);
@@ -115,7 +123,10 @@
 
             if (loading) return (
                 <div className="min-h-screen flex items-center justify-center bg-slate-950">
-                    <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                    <div className="text-center">
+                        <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                        <p className="text-xs font-bold text-slate-500 animate-pulse">MENGHUBUNGKAN KE DATABASE...</p>
+                    </div>
                 </div>
             );
 
@@ -123,10 +134,10 @@
                 <div className="min-h-screen bg-slate-950 pb-32 max-w-md mx-auto relative shadow-2xl border-x border-white/5">
                     {/* Header */}
                     <header className="p-6 flex justify-between items-center sticky top-0 bg-slate-950/90 backdrop-blur-md z-50 border-b border-white/5">
-                        <h1 className="font-black italic text-xl tracking-tighter uppercase">DEVO <span className="text-blue-500">FC</span></h1>
+                        <h1 className="font-black italic text-xl tracking-tighter uppercase">DEVO <span className="text-blue-500">Mobile</span></h1>
                         <button 
                             onClick={() => setEditMode(!editMode)}
-                            className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${editMode ? 'bg-green-600 text-white' : 'bg-slate-800 text-slate-400'}`}
+                            className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${editMode ? 'bg-green-600 text-white shadow-lg shadow-green-600/20' : 'bg-slate-800 text-slate-400'}`}
                         >
                             {editMode ? 'SIMPAN' : 'MODE ADMIN'}
                         </button>
@@ -144,7 +155,6 @@
                                     <h2 className="text-4xl font-black mt-2 tracking-tighter">Rp {Number(saldo).toLocaleString('id-ID')}</h2>
                                 </div>
 
-                                {/* Form Input Transaksi (Hanya Admin) */}
                                 {editMode && (
                                     <div className="glass p-6 rounded-3xl space-y-4 border-blue-500/20 border animate-in slide-in-from-top-4 duration-300">
                                         <h3 className="text-xs font-black uppercase tracking-widest text-blue-400">Input Kas Masuk/Keluar</h3>
@@ -163,10 +173,11 @@
                                     </div>
                                 )}
 
-                                {/* Riwayat */}
                                 <div className="space-y-3">
                                     <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Aktivitas Terakhir</h3>
-                                    {history.map(t => (
+                                    {history.length === 0 ? (
+                                        <p className="text-[10px] text-center text-slate-700 py-10 uppercase font-bold italic tracking-widest">Belum ada transaksi</p>
+                                    ) : history.map(t => (
                                         <div key={t.idDoc} className="glass p-4 rounded-2xl flex justify-between items-center hover:bg-white/5 transition-all">
                                             <div className="flex items-center gap-3">
                                                 <div className={`w-8 h-8 rounded-full flex items-center justify-center ${t.tipe === 'masuk' ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}>
@@ -175,7 +186,7 @@
                                                 <span className="text-xs font-bold uppercase tracking-tight">{t.ket}</span>
                                             </div>
                                             <span className={`text-xs font-black ${t.tipe === 'masuk' ? 'text-green-500' : 'text-red-500'}`}>
-                                                Rp {t.total.toLocaleString()}
+                                                {t.tipe === 'masuk' ? '+' : '-'} Rp {t.total.toLocaleString()}
                                             </span>
                                         </div>
                                     ))}
@@ -187,7 +198,7 @@
                             <div className="space-y-4">
                                 <div className="flex justify-between items-center">
                                     <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Status Iuran Bulanan</h3>
-                                    <span className="text-[8px] bg-blue-600/20 text-blue-400 px-2 py-1 rounded-full font-bold uppercase">Geser Tabel →</span>
+                                    <span className="text-[8px] bg-blue-600/20 text-blue-400 px-2 py-1 rounded-full font-bold uppercase animate-pulse">Geser Tabel →</span>
                                 </div>
                                 <div className="overflow-x-auto no-scrollbar rounded-3xl glass border border-white/5">
                                     <table className="w-full text-left">
@@ -230,7 +241,7 @@
                                             <p className="text-sm font-black uppercase tracking-tight">{m.name}</p>
                                         </div>
                                         <div className="flex gap-3">
-                                            <button onClick={() => window.open(`https://wa.me/?text=Halo%20${m.name},%20jangan%20lupa%20iuran%20Devo%20FC%20ya!`)} className="w-8 h-8 rounded-lg bg-green-500/10 text-green-500 flex items-center justify-center hover:bg-green-500 hover:text-white transition-all">
+                                            <button onClick={() => window.open(`https://wa.me/?text=Halo%20${m.name},%20jangan%20lupa%20iuran%20Devo%20Mobile%20ya!`)} className="w-8 h-8 rounded-lg bg-green-500/10 text-green-500 flex items-center justify-center hover:bg-green-500 hover:text-white transition-all">
                                                 <i className="fab fa-whatsapp"></i>
                                             </button>
                                         </div>
@@ -244,15 +255,15 @@
                     <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-slate-900/95 backdrop-blur-2xl p-4 px-10 flex justify-between items-center rounded-t-[2.5rem] border-t border-white/5 z-50 shadow-2xl">
                         <button onClick={() => setActiveTab('home')} className={`flex flex-col items-center gap-1.5 transition-all ${activeTab === 'home' ? 'active-tab text-blue-500' : 'text-slate-600'}`}>
                             <i className="fas fa-chart-pie text-xl"></i>
-                            <span className="text-[8px] font-black uppercase">Beranda</span>
+                            <span className="text-[8px] font-black uppercase tracking-tighter">Beranda</span>
                         </button>
                         <button onClick={() => setActiveTab('iuran')} className={`flex flex-col items-center gap-1.5 transition-all ${activeTab === 'iuran' ? 'active-tab text-blue-500' : 'text-slate-600'}`}>
                             <i className="fas fa-table-list text-xl"></i>
-                            <span className="text-[8px] font-black uppercase">Iuran</span>
+                            <span className="text-[8px] font-black uppercase tracking-tighter">Iuran</span>
                         </button>
                         <button onClick={() => setActiveTab('tim')} className={`flex flex-col items-center gap-1.5 transition-all ${activeTab === 'tim' ? 'active-tab text-blue-500' : 'text-slate-600'}`}>
                             <i className="fas fa-id-card text-xl"></i>
-                            <span className="text-[8px] font-black uppercase">Tim</span>
+                            <span className="text-[8px] font-black uppercase tracking-tighter">Tim</span>
                         </button>
                     </nav>
                 </div>
