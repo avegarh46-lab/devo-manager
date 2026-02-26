@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Devo Mobile</title>
     
+    <!-- Library CSS & Icons -->
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
@@ -12,13 +13,14 @@
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 
+    <!-- React & Babel -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/api/libs/babel-standalone/7.23.5/babel.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap');
-        body { background-color: #020617; color: white; font-family: 'Plus Jakarta Sans', sans-serif; }
+        body { background-color: #020617; color: white; font-family: 'Plus Jakarta Sans', sans-serif; margin: 0; padding: 0; }
         .glass { background: rgba(30, 41, 59, 0.4); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.05); }
         .nav-center { transform: translateY(-15px); box-shadow: 0 10px 25px -5px rgba(59, 130, 246, 0.5); }
         .no-scrollbar::-webkit-scrollbar { display: none; }
@@ -28,7 +30,7 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        // Konfigurasi Firebase dari screenshot user
+        // Konfigurasi Firebase
         const firebaseConfig = {
             apiKey: "AIzaSyC7-l7LkpXzdebsGINhg49zPy3XAEtqtUw",
             authDomain: "devo-manager.firebaseapp.com",
@@ -39,7 +41,10 @@
             measurementId: "G-2KE1DXB30E"
         };
 
-        if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+        // Inisialisasi aman
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
         const db = firebase.firestore();
 
         const { useState, useEffect } = React;
@@ -52,7 +57,6 @@
                 saldo: 0,
                 members: [],
                 transactions: [],
-                proker: [],
                 berita: []
             });
 
@@ -63,12 +67,11 @@
                 const unsubFinance = db.collection("settings").doc("finance").onSnapshot(doc => {
                     if (doc.exists) setData(prev => ({...prev, saldo: doc.data().saldo || 0}));
                     setLoading(false);
-                });
+                }, (err) => console.error("Firestore error:", err));
 
-                // Ambil 50 Slot Anggota (urut berdasarkan ID)
+                // Ambil 50 Slot Anggota
                 const unsubMembers = db.collection("members").orderBy("id", "asc").onSnapshot(snap => {
                     const fetched = snap.docs.map(d => ({idDoc: d.id, ...d.data()}));
-                    // Pastikan selalu ada 50 slot
                     const fullList = Array.from({ length: 50 }, (_, i) => {
                         const existing = fetched.find(m => m.id === i + 1);
                         return existing || { id: i + 1, name: "Kosong", wa: "-", status: "empty" };
@@ -87,8 +90,6 @@
                 return () => { unsubFinance(); unsubMembers(); unsubTrx(); unsubBerita(); };
             }, []);
 
-            // --- FUNGSI ADMIN ---
-
             const handleAdminToggle = () => {
                 if (!isAdmin) {
                     const pin = prompt("Masukkan PIN Admin:");
@@ -101,8 +102,8 @@
 
             const editMember = async (member) => {
                 if (!isAdmin) return;
-                const newName = prompt("Edit Nama Anggota:", member.name);
-                const newWa = prompt("Edit Nomor WhatsApp (Gunakan 62...):", member.wa);
+                const newName = prompt("Edit Nama Anggota (Slot " + member.id + "):", member.name === "Kosong" ? "" : member.name);
+                const newWa = prompt("Edit Nomor WhatsApp (Contoh: 62812345678):", member.wa === "-" ? "" : member.wa);
                 
                 if (newName !== null && newWa !== null) {
                     await db.collection("members").doc(`member_${member.id}`).set({
@@ -116,15 +117,16 @@
 
             const addTransaction = async () => {
                 const ket = prompt("Keterangan Transaksi:");
-                const total = parseInt(prompt("Jumlah (Angka):"));
-                const tipe = prompt("Tipe (masuk/keluar):").toLowerCase();
+                const totalStr = prompt("Jumlah (Angka saja):");
+                const total = parseInt(totalStr);
+                const tipe = prompt("Tipe (masuk/keluar):")?.toLowerCase();
                 
-                if (ket && total && (tipe === 'masuk' || tipe === 'keluar')) {
+                if (ket && !isNaN(total) && (tipe === 'masuk' || tipe === 'keluar')) {
                     const newSaldo = tipe === 'masuk' ? data.saldo + total : data.saldo - total;
                     await db.collection("transactions").add({
                         ket, total, tipe, date: firebase.firestore.Timestamp.now()
                     });
-                    await db.collection("settings").doc("finance").update({ saldo: newSaldo });
+                    await db.collection("settings").doc("finance").set({ saldo: newSaldo }, { merge: true });
                 }
             };
 
@@ -132,8 +134,8 @@
                 if (!isAdmin) return;
                 const memberDocId = `member_${memberId}`;
                 const memberRef = db.collection("members").doc(memberDocId);
-                const doc = await memberRef.get();
-                const currentPaid = doc.exists ? (doc.data().paid || {}) : {};
+                const docSnap = await memberRef.get();
+                const currentPaid = docSnap.exists ? (docSnap.data().paid || {}) : {};
                 
                 await memberRef.set({
                     id: memberId,
@@ -141,39 +143,44 @@
                 }, { merge: true });
             };
 
-            if (loading) return <div className="h-screen flex items-center justify-center bg-slate-950 text-xs tracking-widest uppercase">Memuat Devo Mobile...</div>;
+            if (loading) return (
+                <div className="h-screen flex flex-col items-center justify-center bg-slate-950">
+                    <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-4"></div>
+                    <span className="text-[10px] font-bold tracking-widest text-slate-500 uppercase">Devo Mobile Loading...</span>
+                </div>
+            );
 
             return (
-                <div className="min-h-screen bg-slate-950 pb-32 max-w-md mx-auto relative overflow-x-hidden">
+                <div className="min-h-screen bg-slate-950 pb-32 max-w-md mx-auto relative overflow-x-hidden border-x border-white/5">
                     {/* Header */}
-                    <header className="p-6 flex justify-between items-center sticky top-0 bg-slate-950/80 backdrop-blur-md z-50 border-b border-white/5">
+                    <header className="p-6 flex justify-between items-center sticky top-0 bg-slate-950/90 backdrop-blur-md z-50 border-b border-white/5">
                         <div className="flex flex-col">
                            <h1 className="font-black italic text-xl uppercase tracking-tighter leading-none">DEVO <span className="text-blue-500">MOBILE</span></h1>
-                           <span className="text-[8px] font-bold text-slate-600 tracking-widest uppercase">Official App</span>
+                           <span className="text-[8px] font-bold text-slate-600 tracking-widest uppercase">Admin Management</span>
                         </div>
-                        <button onClick={handleAdminToggle} className={`p-2 w-10 h-10 rounded-xl transition-all ${isAdmin ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30' : 'bg-slate-900 text-slate-600'}`}>
+                        <button onClick={handleAdminToggle} className={`p-2 w-10 h-10 rounded-xl transition-all flex items-center justify-center ${isAdmin ? 'bg-blue-600 text-white' : 'bg-slate-900 text-slate-600'}`}>
                             <i className={`fas ${isAdmin ? 'fa-unlock' : 'fa-lock'}`}></i>
                         </button>
                     </header>
 
                     <main className="px-6 py-4">
-                        {/* TAB: HOME */}
+                        {/* HOME TAB */}
                         {activeTab === 'home' && (
-                            <div className="space-y-6">
+                            <div className="space-y-6 animate-in fade-in duration-500">
                                 <div className="bg-gradient-to-br from-blue-600 to-indigo-900 p-8 rounded-[2rem] shadow-xl border border-white/10 relative overflow-hidden">
                                     <div className="absolute -right-4 -bottom-4 opacity-10 rotate-12">
                                         <i className="fas fa-wallet text-8xl"></i>
                                     </div>
-                                    <p className="text-[9px] font-bold text-blue-200 uppercase tracking-widest">Saldo Organisasi</p>
+                                    <p className="text-[9px] font-bold text-blue-200 uppercase tracking-widest">Saldo Saat Ini</p>
                                     <h2 className="text-4xl font-black mt-1">Rp {data.saldo.toLocaleString('id-ID')}</h2>
                                 </div>
                                 
                                 <div className="space-y-3">
                                     <div className="flex justify-between px-1">
-                                        <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Transaksi Terakhir</h3>
-                                        {isAdmin && <button onClick={addTransaction} className="text-blue-500 text-[10px] font-bold">+ CATAT</button>}
+                                        <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Log Transaksi</h3>
+                                        {isAdmin && <button onClick={addTransaction} className="text-blue-500 text-[10px] font-bold">+ CATAT BARU</button>}
                                     </div>
-                                    {data.transactions.length === 0 && <p className="text-center py-10 text-slate-700 text-xs italic">Belum ada transaksi</p>}
+                                    {data.transactions.length === 0 && <p className="text-center py-10 text-slate-700 text-[10px] italic">Tidak ada catatan.</p>}
                                     {data.transactions.map(t => (
                                         <div key={t.idDoc} className="glass p-4 rounded-2xl flex justify-between items-center border border-white/5">
                                             <div className="flex items-center gap-3">
@@ -186,7 +193,7 @@
                                                 </div>
                                             </div>
                                             <span className={`text-sm font-black ${t.tipe === 'masuk' ? 'text-green-500' : 'text-red-500'}`}>
-                                                {t.tipe === 'masuk' ? '+' : '-'} {t.total.toLocaleString()}
+                                                {t.total.toLocaleString()}
                                             </span>
                                         </div>
                                     ))}
@@ -194,11 +201,11 @@
                             </div>
                         )}
 
-                        {/* TAB: ANGGOTA (ADMIN EDITABLE) */}
+                        {/* ANGGOTA TAB */}
                         {activeTab === 'anggota' && (
-                            <div className="space-y-4">
+                            <div className="space-y-4 animate-in fade-in duration-500">
                                 <div className="flex justify-between items-center px-1">
-                                    <h2 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Daftar Anggota (50)</h2>
+                                    <h2 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Manajemen Anggota (50 Slot)</h2>
                                     {isAdmin && <span className="text-[8px] text-blue-400 font-bold">MODE EDIT AKTIF</span>}
                                 </div>
                                 <div className="grid grid-cols-1 gap-2">
@@ -206,7 +213,7 @@
                                         <div 
                                             key={m.id} 
                                             onClick={() => editMember(m)}
-                                            className={`glass p-4 rounded-2xl flex justify-between items-center border border-white/5 ${isAdmin ? 'active:scale-95 cursor-pointer' : ''}`}
+                                            className={`glass p-4 rounded-2xl flex justify-between items-center border border-white/5 transition-all ${isAdmin ? 'active:scale-95 cursor-pointer ring-1 ring-white/10' : ''}`}
                                         >
                                             <div className="flex items-center gap-4">
                                                 <span className="text-[10px] font-bold text-slate-600 w-4">{m.id}</span>
@@ -215,38 +222,42 @@
                                                     <span className="text-[9px] text-slate-500">{m.wa || "-"}</span>
                                                 </div>
                                             </div>
-                                            {m.wa !== "-" && (
-                                                <a href={`https://wa.me/${m.wa}`} className="w-8 h-8 bg-green-500/10 text-green-500 rounded-lg flex items-center justify-center text-xs">
-                                                    <i className="fab fa-whatsapp"></i>
-                                                </a>
-                                            )}
+                                            <div className="flex items-center gap-2">
+                                                {m.wa !== "-" && (
+                                                    <a href={`https://wa.me/${m.wa}`} onClick={(e)=>e.stopPropagation()} className="w-8 h-8 bg-green-500/10 text-green-500 rounded-lg flex items-center justify-center text-xs">
+                                                        <i className="fab fa-whatsapp"></i>
+                                                    </a>
+                                                )}
+                                                {isAdmin && <i className="fas fa-edit text-slate-700 text-[10px]"></i>}
+                                            </div>
                                         </div>
                                     ))}
                                 </div>
                             </div>
                         )}
 
-                        {/* TAB: IURAN */}
+                        {/* IURAN TAB */}
                         {activeTab === 'iuran' && (
-                            <div className="space-y-4">
-                                <h2 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Monitoring Iuran Kas</h2>
-                                <div className="overflow-x-auto no-scrollbar glass rounded-3xl border border-white/5">
+                            <div className="space-y-4 animate-in fade-in duration-500">
+                                <h2 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Tabel Iuran Anggota</h2>
+                                <div className="overflow-x-auto no-scrollbar glass rounded-3xl border border-white/5 shadow-2xl">
                                     <table className="w-full text-left border-collapse">
                                         <thead>
                                             <tr className="text-[8px] uppercase text-slate-500 bg-white/5">
-                                                <th className="p-4 sticky left-0 bg-slate-900 border-r border-white/5">Nama Anggota</th>
+                                                <th className="p-4 sticky left-0 bg-slate-900 border-r border-white/5 z-20">Nama</th>
                                                 {months.map(m => <th key={m} className="p-4 text-center">{m}</th>)}
                                             </tr>
                                         </thead>
                                         <tbody className="text-[10px]">
                                             {data.members.filter(m => m.status === 'active').map(m => (
                                                 <tr key={m.id} className="border-b border-white/5">
-                                                    <td className="p-4 font-bold uppercase sticky left-0 bg-slate-900 border-r border-white/5 whitespace-nowrap">{m.name}</td>
+                                                    <td className="p-4 font-bold uppercase sticky left-0 bg-slate-900 border-r border-white/5 whitespace-nowrap z-10">{m.name}</td>
                                                     {months.map(mon => (
                                                         <td key={mon} className="p-2 text-center">
                                                             <button 
                                                                 onClick={() => toggleIuran(m.id, mon, m.paid?.[mon])}
                                                                 className={`w-7 h-7 rounded-xl transition-all flex items-center justify-center ${m.paid?.[mon] ? 'bg-green-600 text-white shadow-lg shadow-green-600/20' : 'bg-slate-800 text-slate-700'}`}
+                                                                disabled={!isAdmin}
                                                             >
                                                                 <i className={`fas ${m.paid?.[mon] ? 'fa-check' : 'fa-times'} text-[8px]`}></i>
                                                             </button>
@@ -254,25 +265,26 @@
                                                     ))}
                                                 </tr>
                                             ))}
+                                            {data.members.filter(m => m.status === 'active').length === 0 && (
+                                                <tr><td colSpan="13" className="p-10 text-center text-slate-700 italic">Belum ada anggota aktif.</td></tr>
+                                            )}
                                         </tbody>
                                     </table>
                                 </div>
                             </div>
                         )}
 
-                        {/* TAB: BERITA */}
+                        {/* BERITA TAB */}
                         {activeTab === 'berita' && (
-                            <div className="space-y-4">
-                                <div className="flex justify-between items-center px-1">
-                                    <h2 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Informasi Terkini</h2>
-                                </div>
-                                {data.berita.length === 0 && <p className="text-center py-10 text-slate-700 text-xs italic">Belum ada pengumuman</p>}
+                            <div className="space-y-4 animate-in fade-in duration-500">
+                                <h2 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Pengumuman Terbaru</h2>
+                                {data.berita.length === 0 && <p className="text-center py-10 text-slate-700 text-[10px] italic">Tidak ada berita.</p>}
                                 {data.berita.map(b => (
                                     <div key={b.idDoc} className="glass p-5 rounded-3xl border border-white/5">
                                         <h3 className="font-bold text-sm text-blue-400">{b.judul}</h3>
                                         <p className="text-xs text-slate-400 mt-2 leading-relaxed">{b.isi}</p>
                                         <div className="mt-4 pt-4 border-t border-white/5 text-[8px] text-slate-600 font-bold uppercase tracking-widest">
-                                            Diposting: {b.date?.toDate().toLocaleString('id-ID')}
+                                            {b.date?.toDate().toLocaleString('id-ID')}
                                         </div>
                                     </div>
                                 ))}
@@ -280,7 +292,7 @@
                         )}
                     </main>
 
-                    {/* Bottom Navigation */}
+                    {/* Navigation Bar */}
                     <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-slate-900/95 backdrop-blur-2xl p-4 flex justify-between items-center rounded-t-[2.5rem] border-t border-white/10 z-[60] shadow-2xl">
                         <button onClick={() => setActiveTab('berita')} className={`flex-1 flex flex-col items-center gap-1.5 transition-all ${activeTab === 'berita' ? 'text-blue-500 scale-110' : 'text-slate-600'}`}>
                             <i className="fas fa-bullhorn text-sm"></i>
@@ -291,8 +303,8 @@
                             <span className="text-[7px] font-bold uppercase tracking-widest">Anggota</span>
                         </button>
                         <div className="flex-1 flex justify-center">
-                            <button onClick={() => setActiveTab('home')} className={`w-14 h-14 rounded-[1.5rem] flex flex-col items-center justify-center nav-center transition-all ${activeTab === 'home' ? 'bg-blue-600 text-white shadow-xl shadow-blue-600/40' : 'bg-slate-800 text-slate-500'}`}>
-                                <i className="fas fa-grid-2 text-lg"></i>
+                            <button onClick={() => setActiveTab('home')} className={`w-14 h-14 rounded-2xl flex flex-col items-center justify-center nav-center transition-all ${activeTab === 'home' ? 'bg-blue-600 text-white shadow-xl shadow-blue-600/40' : 'bg-slate-800 text-slate-500'}`}>
+                                <i className="fas fa-home text-lg"></i>
                                 <span className="text-[7px] font-bold uppercase mt-1">Home</span>
                             </button>
                         </div>
