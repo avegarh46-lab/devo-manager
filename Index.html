@@ -3,14 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>DEVO Mobile Manager</title>
-    <link rel="manifest" href="manifest.json">
+    <title>DEVO Organization Manager</title>
     
     <!-- UI Frameworks -->
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
-    <!-- Firebase SDK (Version Compat) -->
+    <!-- Firebase SDK -->
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 
@@ -20,10 +19,27 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
 
     <style>
-        body { background-color: #020617; color: white; margin: 0; font-family: 'Inter', sans-serif; -webkit-tap-highlight-color: transparent; }
-        .glass { background: rgba(30, 41, 59, 0.5); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.08); }
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap');
+        
+        body { 
+            background-color: #020617; 
+            color: white; 
+            margin: 0; 
+            font-family: 'Plus Jakarta Sans', sans-serif; 
+            -webkit-tap-highlight-color: transparent; 
+        }
+        .glass { background: rgba(30, 41, 59, 0.4); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.05); }
         .no-scrollbar::-webkit-scrollbar { display: none; }
-        .active-tab { color: #3b82f6; transform: translateY(-2px); transition: all 0.3s ease; }
+        
+        /* Animasi Transisi Tab */
+        .fade-enter { opacity: 0; transform: translateY(10px); }
+        .fade-enter-active { opacity: 1; transform: translateY(0); transition: all 0.3s ease; }
+        
+        /* Nav Center Button */
+        .nav-center {
+            transform: translateY(-20px);
+            box-shadow: 0 10px 25px -5px rgba(59, 130, 246, 0.5);
+        }
     </style>
 </head>
 <body>
@@ -47,162 +63,219 @@
 
         function App() {
             const [activeTab, setActiveTab] = useState('home');
-            const [editMode, setEditMode] = useState(false);
+            const [isAdmin, setIsAdmin] = useState(false);
             const [loading, setLoading] = useState(true);
-            const [saldo, setSaldo] = useState(0);
-            const [members, setMembers] = useState([]);
-            const [history, setHistory] = useState([]);
-            const [newTrx, setNewTrx] = useState({ ket: '', total: '', tipe: 'masuk' });
-            const [editingId, setEditingId] = useState(null);
+            const [data, setData] = useState({
+                saldo: 0,
+                members: [],
+                transactions: [],
+                proker: [],
+                berita: []
+            });
 
             const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
 
             useEffect(() => {
+                // Real-time Listeners
                 const unsubFinance = db.collection("settings").doc("finance").onSnapshot(doc => {
-                    if (doc.exists) setSaldo(doc.data().saldo || 0);
-                    else db.collection("settings").doc("finance").set({ saldo: 0 });
+                    if (doc.exists) setData(prev => ({...prev, saldo: doc.data().saldo || 0}));
                     setLoading(false);
-                }, err => setLoading(false));
+                });
 
                 const unsubMembers = db.collection("members").orderBy("id", "asc").onSnapshot(snap => {
-                    const data = snap.docs.map(doc => ({ idDoc: doc.id, ...doc.data() }));
-                    if (data.length === 0) initMembers();
-                    else setMembers(data);
+                    const m = snap.docs.map(d => ({idDoc: d.id, ...d.data()}));
+                    setData(prev => ({...prev, members: m}));
                 });
 
-                const unsubTrx = db.collection("transactions").orderBy("date", "desc").limit(10).onSnapshot(snap => {
-                    setHistory(snap.docs.map(doc => ({ idDoc: doc.id, ...doc.data() })));
+                const unsubTrx = db.collection("transactions").orderBy("date", "desc").limit(15).onSnapshot(snap => {
+                    setData(prev => ({...prev, transactions: snap.docs.map(d => ({idDoc: d.id, ...d.data()}))}));
                 });
 
-                return () => { unsubFinance(); unsubMembers(); unsubTrx(); };
+                const unsubProker = db.collection("proker").orderBy("date", "desc").onSnapshot(snap => {
+                    setData(prev => ({...prev, proker: snap.docs.map(d => ({idDoc: d.id, ...d.data()}))}));
+                });
+
+                const unsubBerita = db.collection("berita").orderBy("date", "desc").onSnapshot(snap => {
+                    setData(prev => ({...prev, berita: snap.docs.map(d => ({idDoc: d.id, ...d.data()}))}));
+                });
+
+                return () => { unsubFinance(); unsubMembers(); unsubTrx(); unsubProker(); unsubBerita(); };
             }, []);
 
-            const initMembers = async () => {
-                const batch = db.batch();
-                for (let i = 1; i <= 50; i++) {
-                    const ref = db.collection("members").doc(`member_${i}`);
-                    batch.set(ref, { id: i, name: `PEMAIN ${i}`, whatsapp: '', paid: {} });
+            // Handle Login Admin Sederhana
+            const handleAdminToggle = () => {
+                if (!isAdmin) {
+                    const pin = prompt("Masukkan PIN Khusus Pengurus:");
+                    if (pin === "2024") { // Ganti PIN sesuai keinginan Anda
+                        setIsAdmin(true);
+                    } else {
+                        alert("PIN Salah! Hanya Ketua, Wakil, Sekretaris, & Bendahara.");
+                    }
+                } else {
+                    setIsAdmin(false);
                 }
-                await batch.commit();
-            };
-
-            const updateMemberData = async (idDoc, field, value) => {
-                try {
-                    await db.collection("members").doc(idDoc).update({ [field]: value });
-                } catch (e) {
-                    console.error("Update error:", e);
-                }
-            };
-
-            const addTransaction = async () => {
-                if (!newTrx.ket || !newTrx.total) return alert("Isi keterangan dan jumlah!");
-                const amount = Number(newTrx.total);
-                const newSaldo = newTrx.tipe === 'masuk' ? saldo + amount : saldo - amount;
-                
-                try {
-                    await db.collection("transactions").add({
-                        ...newTrx,
-                        total: amount,
-                        date: firebase.firestore.Timestamp.now()
-                    });
-                    await db.collection("settings").doc("finance").update({ saldo: newSaldo });
-                    setNewTrx({ ket: '', total: '', tipe: 'masuk' });
-                } catch (e) {
-                    alert("Error: " + e.message);
-                }
-            };
-
-            const toggleIuran = async (idDoc, currentPaid, month) => {
-                const updatedPaid = { ...currentPaid, [month]: !currentPaid[month] };
-                await db.collection("members").doc(idDoc).update({ paid: updatedPaid });
             };
 
             if (loading) return (
-                <div className="min-h-screen flex items-center justify-center bg-slate-950 text-white">
+                <div className="min-h-screen flex items-center justify-center bg-slate-950">
                     <div className="text-center">
-                        <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-                        <p className="text-[10px] font-black uppercase tracking-widest animate-pulse">Menghubungkan Database...</p>
+                        <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                        <p className="text-[10px] font-bold text-slate-500 tracking-[0.2em] uppercase">Memuat Data Devo...</p>
                     </div>
                 </div>
             );
 
             return (
                 <div className="min-h-screen bg-slate-950 pb-32 max-w-md mx-auto relative shadow-2xl border-x border-white/5">
-                    {/* Header */}
-                    <header className="p-6 flex justify-between items-center sticky top-0 bg-slate-950/90 backdrop-blur-md z-50 border-b border-white/5">
-                        <h1 className="font-black italic text-xl tracking-tighter uppercase">DEVO <span className="text-blue-500">Mobile</span></h1>
+                    
+                    {/* Header Modern */}
+                    <header className="px-6 py-6 flex justify-between items-center sticky top-0 bg-slate-950/80 backdrop-blur-lg z-50 border-b border-white/5">
+                        <div>
+                            <h1 className="font-black italic text-xl tracking-tighter uppercase leading-none">DEVO <span className="text-blue-500">ORG</span></h1>
+                            <p className="text-[8px] font-bold text-slate-500 tracking-widest uppercase mt-1">Management System</p>
+                        </div>
                         <button 
-                            onClick={() => { setEditMode(!editMode); setEditingId(null); }}
-                            className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${editMode ? 'bg-green-600 text-white shadow-lg' : 'bg-slate-800 text-slate-400'}`}
+                            onClick={handleAdminToggle}
+                            className={`p-2 rounded-xl transition-all ${isAdmin ? 'bg-green-600/20 text-green-500' : 'bg-slate-900 text-slate-500'}`}
                         >
-                            {editMode ? 'SIMPAN' : 'MODE ADMIN'}
+                            <i className={`fas ${isAdmin ? 'fa-unlock' : 'fa-lock'} text-sm`}></i>
                         </button>
                     </header>
 
-                    <main className="px-6 pt-6 text-white">
+                    <main className="px-6 pt-4 animate-in fade-in duration-500">
+                        
+                        {/* TAB: BERITA */}
+                        {activeTab === 'berita' && (
+                            <section className="space-y-4">
+                                <div className="flex justify-between items-center">
+                                    <h2 className="text-xs font-black uppercase tracking-widest text-slate-500">Berita & Pengumuman</h2>
+                                    {isAdmin && <button className="text-[10px] bg-blue-600 px-3 py-1 rounded-lg font-bold">TAMBAH</button>}
+                                </div>
+                                {data.berita.length === 0 && <p className="text-center py-10 text-xs text-slate-600 italic">Belum ada berita terbaru.</p>}
+                                {data.berita.map(b => (
+                                    <div key={b.idDoc} className="glass p-4 rounded-2xl">
+                                        <p className="text-[10px] text-blue-400 font-bold mb-1 uppercase">{new Date(b.date?.toDate()).toLocaleDateString()}</p>
+                                        <h3 className="font-bold text-sm leading-tight">{b.judul}</h3>
+                                        <p className="text-xs text-slate-400 mt-2 line-clamp-3">{b.isi}</p>
+                                    </div>
+                                ))}
+                            </section>
+                        )}
+
+                        {/* TAB: PROKER */}
+                        {activeTab === 'proker' && (
+                            <section className="space-y-4">
+                                <div className="flex justify-between items-center">
+                                    <h2 className="text-xs font-black uppercase tracking-widest text-slate-500">Program Kerja</h2>
+                                    {isAdmin && <button className="text-[10px] bg-blue-600 px-3 py-1 rounded-lg font-bold">RENCANA BARU</button>}
+                                </div>
+                                {data.proker.map(p => (
+                                    <div key={p.idDoc} className="glass p-5 rounded-3xl border-l-4 border-indigo-500">
+                                        <div className="flex justify-between items-start">
+                                            <h3 className="font-bold text-sm uppercase">{p.nama}</h3>
+                                            <span className={`text-[8px] px-2 py-1 rounded-full font-black uppercase ${p.status === 'Selesai' ? 'bg-green-500/20 text-green-500' : 'bg-orange-500/20 text-orange-500'}`}>
+                                                {p.status}
+                                            </span>
+                                        </div>
+                                        <p className="text-[10px] text-slate-400 mt-2">{p.deskripsi}</p>
+                                    </div>
+                                ))}
+                            </section>
+                        )}
+
+                        {/* TAB: HOME (CENTER) */}
                         {activeTab === 'home' && (
                             <div className="space-y-6">
-                                <div className="bg-gradient-to-br from-blue-600 to-indigo-950 p-8 rounded-[2.5rem] shadow-xl relative overflow-hidden border border-white/10">
-                                    <p className="text-[10px] font-black text-blue-200 uppercase tracking-widest opacity-60">Saldo Kas Devo</p>
-                                    <h2 className="text-4xl font-black mt-2 tracking-tighter">Rp {Number(saldo).toLocaleString('id-ID')}</h2>
+                                {/* Card Saldo Transparan */}
+                                <div className="bg-gradient-to-br from-blue-600 to-indigo-900 p-8 rounded-[2.5rem] shadow-2xl relative overflow-hidden border border-white/10">
+                                    <div className="absolute -right-4 -top-4 w-32 h-32 bg-white/10 rounded-full blur-3xl"></div>
+                                    <p className="text-[10px] font-black text-blue-100 uppercase tracking-[0.2em] opacity-70">Total Kas Organisasi</p>
+                                    <h2 className="text-4xl font-black mt-2 tracking-tighter">Rp {data.saldo.toLocaleString('id-ID')}</h2>
+                                    <div className="mt-6 flex gap-2">
+                                        <div className="bg-white/10 px-3 py-1.5 rounded-xl text-[9px] font-bold backdrop-blur-md">
+                                            {data.members.length} Anggota
+                                        </div>
+                                        <div className="bg-white/10 px-3 py-1.5 rounded-xl text-[9px] font-bold backdrop-blur-md">
+                                            Real-time Data
+                                        </div>
+                                    </div>
                                 </div>
 
-                                {editMode && (
-                                    <div className="glass p-6 rounded-3xl space-y-4 border-blue-500/20 border animate-in slide-in-from-top-4 duration-300">
-                                        <h3 className="text-xs font-black uppercase tracking-widest text-blue-400">Input Kas</h3>
-                                        <input placeholder="Keterangan..." className="w-full bg-slate-900 p-3 rounded-xl text-sm outline-none border border-white/5 focus:border-blue-500" 
-                                            value={newTrx.ket} onChange={e => setNewTrx({...newTrx, ket: e.target.value})} />
-                                        <div className="flex gap-2">
-                                            <input type="number" placeholder="Jumlah" className="flex-1 bg-slate-900 p-3 rounded-xl text-sm outline-none border border-white/5" 
-                                                value={newTrx.total} onChange={e => setNewTrx({...newTrx, total: e.target.value})} />
-                                            <select className="bg-slate-900 p-3 rounded-xl text-xs font-bold outline-none border border-white/5"
-                                                value={newTrx.tipe} onChange={e => setNewTrx({...newTrx, tipe: e.target.value})}>
-                                                <option value="masuk">Masuk</option>
-                                                <option value="keluar">Keluar</option>
-                                            </select>
-                                        </div>
-                                        <button onClick={addTransaction} className="w-full bg-blue-600 py-3 rounded-xl font-black text-xs uppercase shadow-lg">Catat Transaksi</button>
-                                    </div>
-                                )}
-
+                                {/* List Transaksi (Transparansi) */}
                                 <div className="space-y-3">
-                                    <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Aktivitas Terakhir</h3>
-                                    {history.map(t => (
-                                        <div key={t.idDoc} className="glass p-4 rounded-2xl flex justify-between items-center">
-                                            <span className="text-xs font-bold uppercase">{t.ket}</span>
+                                    <div className="flex justify-between items-center px-1">
+                                        <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Alur Kas Terbaru</h3>
+                                        <i className="fas fa-history text-slate-700 text-xs"></i>
+                                    </div>
+                                    {data.transactions.map(t => (
+                                        <div key={t.idDoc} className="glass p-4 rounded-2xl flex justify-between items-center group active:scale-95 transition-all">
+                                            <div className="flex items-center gap-3">
+                                                <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${t.tipe === 'masuk' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
+                                                    <i className={`fas ${t.tipe === 'masuk' ? 'fa-arrow-down' : 'fa-arrow-up'} text-xs`}></i>
+                                                </div>
+                                                <div>
+                                                    <p className="text-xs font-bold uppercase tracking-tight">{t.ket}</p>
+                                                    <p className="text-[8px] text-slate-500 font-bold uppercase">{new Date(t.date?.toDate()).toLocaleDateString('id-ID')}</p>
+                                                </div>
+                                            </div>
                                             <span className={`text-xs font-black ${t.tipe === 'masuk' ? 'text-green-500' : 'text-red-500'}`}>
-                                                {t.tipe === 'masuk' ? '+' : '-'} Rp {t.total.toLocaleString()}
+                                                {t.tipe === 'masuk' ? '+' : '-'} {t.total.toLocaleString()}
                                             </span>
                                         </div>
                                     ))}
+                                    {isAdmin && (
+                                        <button onClick={() => alert("Gunakan Mode Admin di Versi Lengkap")} className="w-full py-4 border-2 border-dashed border-white/5 rounded-2xl text-[10px] font-black text-slate-600 uppercase hover:border-blue-500/50 hover:text-blue-500 transition-all">
+                                            + Tambah Transaksi Baru
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                         )}
 
+                        {/* TAB: ANGGOTA */}
+                        {activeTab === 'anggota' && (
+                            <section className="space-y-4">
+                                <h2 className="text-[10px] font-black uppercase tracking-widest text-slate-500 px-1">Database Anggota Devo</h2>
+                                {data.members.map(m => (
+                                    <div key={m.idDoc} className="glass p-4 rounded-2xl flex items-center justify-between">
+                                        <div className="flex items-center gap-4">
+                                            <div className="w-10 h-10 bg-slate-900 rounded-xl flex items-center justify-center font-black text-xs text-blue-500 border border-white/5">{m.id}</div>
+                                            <div>
+                                                <p className="text-sm font-black uppercase">{m.name}</p>
+                                                <p className="text-[9px] text-slate-500 font-bold">{m.whatsapp || 'No WhatsApp Belum Ada'}</p>
+                                            </div>
+                                        </div>
+                                        {m.whatsapp && (
+                                            <button onClick={() => window.open(`https://wa.me/${m.whatsapp}`)} className="w-9 h-9 rounded-xl bg-green-500/10 text-green-500 flex items-center justify-center">
+                                                <i className="fab fa-whatsapp"></i>
+                                            </button>
+                                        )}
+                                    </div>
+                                ))}
+                            </section>
+                        )}
+
+                        {/* TAB: IURAN */}
                         {activeTab === 'iuran' && (
-                            <div className="space-y-4">
-                                <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Tabel Iuran Bulanan</h3>
-                                <div className="overflow-x-auto no-scrollbar rounded-3xl glass border border-white/5">
+                            <section className="space-y-4">
+                                <h2 className="text-[10px] font-black uppercase tracking-widest text-slate-500 px-1">Kontrol Iuran Bulanan</h2>
+                                <div className="overflow-x-auto no-scrollbar rounded-[2rem] glass border border-white/5">
                                     <table className="w-full">
-                                        <thead className="bg-slate-900/50">
+                                        <thead className="bg-slate-900/50 text-[9px] font-black uppercase text-slate-500">
                                             <tr>
-                                                <th className="p-4 text-[9px] font-black sticky left-0 bg-[#0f172a] z-10 border-r border-white/5">NAMA</th>
-                                                {months.map(m => <th key={m} className="p-4 text-[9px] font-black text-center">{m}</th>)}
+                                                <th className="p-4 text-left sticky left-0 bg-slate-900 z-10 border-r border-white/5">Anggota</th>
+                                                {months.map(m => <th key={m} className="p-4 text-center">{m}</th>)}
                                             </tr>
                                         </thead>
-                                        <tbody>
-                                            {members.map(m => (
+                                        <tbody className="text-[10px]">
+                                            {data.members.map(m => (
                                                 <tr key={m.idDoc} className="border-t border-white/5">
-                                                    <td className="p-4 text-[10px] font-black sticky left-0 bg-[#0f172a] z-10 border-r border-white/5 uppercase truncate max-w-[100px]">{m.name}</td>
+                                                    <td className="p-4 font-black uppercase sticky left-0 bg-slate-900 z-10 border-r border-white/5 truncate max-w-[100px]">{m.name}</td>
                                                     {months.map(mon => (
                                                         <td key={mon} className="p-2 text-center">
-                                                            <button 
-                                                                disabled={!editMode}
-                                                                onClick={() => toggleIuran(m.idDoc, m.paid || {}, mon)}
-                                                                className={`w-7 h-7 mx-auto rounded-lg flex items-center justify-center transition-all ${m.paid?.[mon] ? 'bg-green-500 text-white' : 'bg-slate-800/50 text-slate-700'}`}
-                                                            >
-                                                                <i className={`fas ${m.paid?.[mon] ? 'fa-check' : 'fa-times'} text-[8px]`}></i>
-                                                            </button>
+                                                            <div className={`w-6 h-6 mx-auto rounded-lg flex items-center justify-center ${m.paid?.[mon] ? 'bg-green-500 text-white' : 'bg-slate-800 text-slate-700 opacity-30'}`}>
+                                                                <i className="fas fa-check text-[8px]"></i>
+                                                            </div>
                                                         </td>
                                                     ))}
                                                 </tr>
@@ -210,74 +283,50 @@
                                         </tbody>
                                     </table>
                                 </div>
-                            </div>
+                            </section>
                         )}
 
-                        {activeTab === 'tim' && (
-                            <div className="space-y-4">
-                                <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Daftar Panitia & Anggota</h3>
-                                {members.map((m) => (
-                                    <div key={m.idDoc} className="glass p-5 rounded-[2rem] border-l-4 border-blue-600 space-y-3">
-                                        <div className="flex items-center gap-4">
-                                            <div className="w-10 h-10 bg-slate-900 rounded-2xl flex items-center justify-center font-black text-xs text-blue-500 border border-white/5">{m.id}</div>
-                                            <div className="flex-1">
-                                                {editMode ? (
-                                                    <input 
-                                                        className="w-full bg-slate-800/50 px-3 py-1 rounded-lg text-sm font-black uppercase text-blue-400 border border-blue-500/30"
-                                                        value={m.name}
-                                                        onChange={(e) => updateMemberData(m.idDoc, 'name', e.target.value.toUpperCase())}
-                                                    />
-                                                ) : (
-                                                    <p className="text-sm font-black uppercase tracking-tight">{m.name}</p>
-                                                )}
-                                            </div>
-                                        </div>
-                                        
-                                        {/* Input WhatsApp hanya muncul di Mode Admin */}
-                                        <div className="flex items-center gap-3">
-                                            {editMode ? (
-                                                <div className="flex-1 flex items-center bg-slate-950 rounded-xl px-3 border border-white/5">
-                                                    <i className="fab fa-whatsapp text-green-500 text-xs mr-2"></i>
-                                                    <input 
-                                                        placeholder="628xxxxxxx"
-                                                        className="w-full bg-transparent py-2 text-[10px] outline-none font-mono"
-                                                        value={m.whatsapp || ''}
-                                                        onChange={(e) => updateMemberData(m.idDoc, 'whatsapp', e.target.value)}
-                                                    />
-                                                </div>
-                                            ) : (
-                                                m.whatsapp && (
-                                                    <button 
-                                                        onClick={() => window.open(`https://wa.me/${m.whatsapp.replace(/\D/g,'')}?text=Halo%20${m.name},%20ini%20dari%20Admin%20DEVO%20Mobile.`)}
-                                                        className="flex items-center gap-2 bg-green-500/10 text-green-500 px-4 py-2 rounded-xl text-[10px] font-black hover:bg-green-500 hover:text-white transition-all"
-                                                    >
-                                                        <i className="fab fa-whatsapp text-sm"></i>
-                                                        CHAT WHATSAPP
-                                                    </button>
-                                                )
-                                            )}
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
                     </main>
 
-                    {/* Navigasi */}
-                    <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-slate-900/95 backdrop-blur-2xl p-4 px-10 flex justify-between items-center rounded-t-[2.5rem] border-t border-white/5 z-50">
-                        <button onClick={() => setActiveTab('home')} className={`flex flex-col items-center gap-1 ${activeTab === 'home' ? 'text-blue-500' : 'text-slate-600'}`}>
-                            <i className="fas fa-home text-xl"></i>
-                            <span className="text-[8px] font-black uppercase">Home</span>
+                    {/* Navigation Bar Sesuai Request */}
+                    <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-slate-900/90 backdrop-blur-2xl px-4 py-4 flex justify-between items-end rounded-t-[2.5rem] border-t border-white/5 z-[60] shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
+                        
+                        {/* 1. Berita (Paling Kiri) */}
+                        <button onClick={() => setActiveTab('berita')} className={`flex-1 flex flex-col items-center gap-1 transition-all ${activeTab === 'berita' ? 'text-blue-500 scale-110' : 'text-slate-600'}`}>
+                            <i className="fas fa-newspaper text-lg"></i>
+                            <span className="text-[7px] font-black uppercase tracking-tighter">Berita</span>
                         </button>
-                        <button onClick={() => setActiveTab('iuran')} className={`flex flex-col items-center gap-1 ${activeTab === 'iuran' ? 'text-blue-500' : 'text-slate-600'}`}>
-                            <i className="fas fa-file-invoice-dollar text-xl"></i>
-                            <span className="text-[8px] font-black uppercase">Iuran</span>
+
+                        {/* 2. Program Kerja */}
+                        <button onClick={() => setActiveTab('proker')} className={`flex-1 flex flex-col items-center gap-1 transition-all ${activeTab === 'proker' ? 'text-blue-500 scale-110' : 'text-slate-600'}`}>
+                            <i className="fas fa-list-check text-lg"></i>
+                            <span className="text-[7px] font-black uppercase tracking-tighter">Proker</span>
                         </button>
-                        <button onClick={() => setActiveTab('tim')} className={`flex flex-col items-center gap-1 ${activeTab === 'tim' ? 'text-blue-500' : 'text-slate-600'}`}>
-                            <i className="fas fa-user-group text-xl"></i>
-                            <span className="text-[8px] font-black uppercase">Tim</span>
+
+                        {/* 3. HOME (CENTER - Menonjol) */}
+                        <div className="flex-1 flex justify-center">
+                            <button 
+                                onClick={() => setActiveTab('home')} 
+                                className={`w-14 h-14 rounded-2xl flex flex-col items-center justify-center transition-all nav-center ${activeTab === 'home' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`}
+                            >
+                                <i className="fas fa-house text-xl"></i>
+                                <span className="text-[7px] font-black uppercase mt-1">Home</span>
+                            </button>
+                        </div>
+
+                        {/* 4. Anggota */}
+                        <button onClick={() => setActiveTab('anggota')} className={`flex-1 flex flex-col items-center gap-1 transition-all ${activeTab === 'anggota' ? 'text-blue-500 scale-110' : 'text-slate-600'}`}>
+                            <i className="fas fa-users text-lg"></i>
+                            <span className="text-[7px] font-black uppercase tracking-tighter">Anggota</span>
+                        </button>
+
+                        {/* 5. Iuran (Paling Kanan) */}
+                        <button onClick={() => setActiveTab('iuran')} className={`flex-1 flex flex-col items-center gap-1 transition-all ${activeTab === 'iuran' ? 'text-blue-500 scale-110' : 'text-slate-600'}`}>
+                            <i className="fas fa-money-check-dollar text-lg"></i>
+                            <span className="text-[7px] font-black uppercase tracking-tighter">Iuran</span>
                         </button>
                     </nav>
+
                 </div>
             );
         }
